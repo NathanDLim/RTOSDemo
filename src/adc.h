@@ -8,6 +8,9 @@
 #ifndef ADC_H_
 #define ADC_H_
 
+#define ADC_SUN_POINT 101
+#define ADC_NADIR_POINT 202
+
 /* Stores all of the data necessary for ADC  */
 struct adc_data {
 

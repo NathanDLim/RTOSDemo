@@ -91,7 +91,15 @@ const unsigned int mode_mask[] = {
 									0b0001000		// Safety
 								 };
 
-int obc_mode;
+struct obc {
+	/* Debugging list of obc_commands */
+	struct obc_command command_list[10];
+	int command_num;
+	int mode;
+};
+
+static struct obc obc;
+
 xQueueHandle adc_queue;
 
 void mode_switching(void *arg) {
@@ -99,11 +107,11 @@ void mode_switching(void *arg) {
 
 	// loop forever
 	for (;;) {
-		printf("now switching to mode %i\n", obc_mode);
+		printf("now switching to mode %i\n", obc.mode);
 		for (i = 0; i < ARRAY_SIZE(task); ++i) {
 			if (task[i] == 0)
 				continue;
-			else if (mode_mask[obc_mode] & BIT(i)) {
+			else if (mode_mask[obc.mode] & BIT(i)) {
 				vTaskResume(task[i]);
 				//printf("resume task %i\n", i + 1);
 			} else {
@@ -119,24 +127,71 @@ void mode_switching(void *arg) {
 	}
 }
 
+
+void sort_command_list()
+{
+	int i, flag = 1;
+	struct obc_command tmp;
+
+	/* Simple bubble sort to sort commands in terms of execution time */
+	while(flag != 0) {
+		flag = 0;
+		printf("looping\n");
+		fflush(stdout);
+		for (i = 0; i < obc.command_num - 1; i++) {
+			if (obc.command_list[i].execution_time > obc.command_list[i + 1].execution_time) {
+				tmp = obc.command_list[i];
+				obc.command_list[i] = obc.command_list[i + 1];
+				obc.command_list[i + 1] = tmp;
+				flag = 1;
+			}
+
+		}
+	}
+
+	// debug print the command list
+	for (i = 0; i < obc.command_num; i++) {
+		printf("cmd type: %i, time:%i, data:%i\n", obc.command_list[i].type, obc.command_list[i].execution_time, obc.command_list[i].data);
+	}
+	fflush(stdout);
+}
+
 /*
  * Performs operations necessary for each obc command
  */
-int execute_obc_command(enum obc_command cmd, int option)
+int execute_obc_command(enum obc_command_type cmd, int option)
 {
-	if (cmd >= MAX_CMD)
+	if (cmd >= CMD_MAX_NUM)
 		return -1;
 
+	struct queue_message message;
+
 	switch (cmd) {
-		case SUN_POINT:
+		case CMD_SUN_POINT:
+			message.id = ADC_SUN_POINT;
+			message.data = 0;
+
+			if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE) {
+				printf("Error sending adc queue message\n");
+				return -1;
+			}
 			// send message to adc to new target
-		case NADIR_POINT:
+			break;
+		case CMD_NADIR_POINT:
+			message.id = ADC_NADIR_POINT;
+			message.data = 0;
+
+			if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE) {
+				printf("Error sending adc queue message\n");
+				return -1;
+			}
 			// send message to adc to new target
-		case BEGIN_IMAGE:
+			break;
+		case CMD_BEGIN_IMAGE:
 			// send message to payload to begin imaging
-		case DOWNLINK:
+		case CMD_DOWNLINK:
 			// send message to communications to compile downlink packet and send it
-		case EDIT_PARAM:
+		case CMD_EDIT_PARAM:
 			// change a parameter in the FRAM
 		default:
 			return -1;
@@ -147,50 +202,39 @@ int execute_obc_command(enum obc_command cmd, int option)
 
 void task_command_handler(void *arg)
 {
-	unsigned char deviceID[9] = {0};
-	unsigned char FRAMread[10] = {0};
-	int retVal, i;
-
-	// Initialization and error checking
-	/*
-	retVal = FRAM_start();
-	if(retVal != 0) {
-		TRACE_WARNING(" Error during FRAM_start: %d \n\r", retVal);
-		while(1);
-	}
-
-	retVal = FRAM_getDeviceID(deviceID);
-	if(retVal != 0) {
-		TRACE_WARNING(" Error during FRAM_protectBlocks: %d \n\r", retVal);
-		while(1);
-	}
-
-	TRACE_DEBUG_WP("Device ID: ");
-	for(i=0; i<sizeof(deviceID); i++) {
-		TRACE_DEBUG_WP("0x%02X ", deviceID[i]);
-	}
-	TRACE_DEBUG_WP("\n\r");
-	*/
+	struct obc_command cmd;
+	int i;
 
 	// Main loop
 	for (;;) {
 		// read the command stack pointer and grab the next command
-		/*
-		retVal = FRAM_read(FRAMread, FRAM_COMMAND_STACK_POINTER, ARRAY_SIZE(FRAMread));
-		if(retVal != 0) {
-			TRACE_WARNING(" Error during FRAM_read: %d \n\r", retVal);
-			while(1);
+		if (obc.command_num == 0) {
+			printf("no tasks to run\n");
+			fflush(stdout);
+			vTaskDelay(5000);
+			continue;
+		}
+		cmd = obc.command_list[0];
+
+		// if the command should be run now or delayed
+		if (cmd.execution_time > i) {
+			i++;
+			vTaskDelay(100);
+			continue;
 		}
 
-		// check the time stamp for the next command and either execute it or delay
-
-		// debug print out the command
-		for(i=0; i<ARRAY_SIZE(FRAMread); i++) {
-			TRACE_DEBUG_WP("0x%X, ", FRAMread[i]);
+		if (execute_obc_command(cmd.type, cmd.data) != 0){
+			printf("error executing command");
 		}
-		*/
 
-		vTaskSuspend(NULL);
+		// remove the command just executed
+		obc.command_list[0] = obc.command_list[obc.command_num - 1];
+		obc.command_num--;
+
+		// sort the command list
+		sort_command_list();
+
+		vTaskDelay(1000);
 	}
 }
 
@@ -218,7 +262,7 @@ void task_debug(void *arg)
 		num = num > 4 ? 1 : num + 1;
 		if (num < 1 || num > 4)
 			continue;
-		//obc_mode = num - 1;
+		//obc.mode = num - 1;
 
 		// test message
 		message.id = 101;
@@ -241,7 +285,25 @@ void task_debug(void *arg)
  */
 void obc_init(void)
 {
-	obc_mode = 1;
+	obc.mode = 1;
+
+	/* List of test obc_commands */
+	obc.command_list[0].type = CMD_SUN_POINT;
+	obc.command_list[0].data = 10;
+	obc.command_list[0].execution_time = 0;
+
+	obc.command_list[1].type = CMD_NADIR_POINT;
+	obc.command_list[1].data = 80;
+	obc.command_list[1].execution_time = 200;
+
+	obc.command_list[2].type = CMD_DOWNLINK;
+	obc.command_list[2].data = 100;
+	obc.command_list[2].execution_time = 30;
+
+	obc.command_list[3].type = CMD_SUN_POINT;
+	obc.command_list[3].data = 10;
+	obc.command_list[3].execution_time = 100;
+	obc.command_num = 4;
 }
 
 /*
@@ -253,10 +315,11 @@ void obc_main(void)
 	xTaskHandle task_mode;
 	adc_queue = xQueueCreate(10, sizeof(struct queue_message));
 
+	/* Create tasks */
 	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, NULL, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
 	xTaskCreate(task_attitude, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queue, ATTITUDE_PRIORITY, &task[ATTITUDE]);
 	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, NULL, GPS_PRIORITY, &task[GPS]);
-	xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
+	//xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
 	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[COMM_HANDLE]);
 
 

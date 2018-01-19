@@ -7,7 +7,7 @@
 
 
 // choose whether system goes into debug mode or not
-#define _DEBUG
+//#define _DEBUG
 
 /*
  * Bit selection.
@@ -22,21 +22,27 @@
 
 /* List of all possible Satellite modes */
 enum mode {
-	INITIAL,
-	SUN_POINTING,
-	NADIR_POINTING,
-	SAFETY,
-	NUM_MODES,
+	MODE_INITIAL,
+	MODE_SUN_POINTING,
+	MODE_NADIR_POINTING,
+	MODE_SAFETY,
+	MODE_MAX_NUM,
 };
 
 // All potential obc commands
-enum obc_command {
-	SUN_POINT,
-	NADIR_POINT,
-	BEGIN_IMAGE,
-	DOWNLINK,
-	EDIT_PARAM,
-	MAX_CMD,
+enum obc_command_type {
+	CMD_SUN_POINT,
+	CMD_NADIR_POINT,
+	CMD_BEGIN_IMAGE,
+	CMD_DOWNLINK,
+	CMD_EDIT_PARAM,
+	CMD_MAX_NUM,
+};
+
+struct obc_command {
+	enum obc_command_type type;
+	long execution_time;
+	int data;
 };
 
 struct queue_message {

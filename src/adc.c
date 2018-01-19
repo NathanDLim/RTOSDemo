@@ -41,8 +41,14 @@ void task_attitude(void *arg)
 	for (;;) {
 		if (xQueueReceive(queue, &message, 0) == pdTRUE) {
 			// message received
-			printf("ADC received message: id = %i, data = %i\n", message.id, message.data);
-			fflush(stdout);
+			if (message.id == ADC_SUN_POINT) {
+				printf("ADC switching to sun pointing\n");
+				fflush(stdout);
+			} else if (message.id == ADC_NADIR_POINT) {
+				printf("ADC switching to nadir pointing\n");
+				fflush(stdout);
+			}
+
 		}
 		vTaskDelay(100);
 	}
