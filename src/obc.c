@@ -44,32 +44,6 @@
 #define SD_PRIORITY				MEDIUM_PRIORITY		// send and retrieve SD card data
 
 
-
-/* List of tasks on the system that can be turned on and off. */
-enum task {
-	// gather and store sensor data
-	HOUSEKEEP,			// 0
-	// calculate attitude controls
-	ATTITUDE,			// 1
-	// stabilize satellite
-	DETUMBLE,			// 2
-	// rebase attitude controls from current GPS data
-	REBASE_ADC,			// 3
-	// gather GPS data
-	GPS,				// 4
-	// receive data from payload
-	PAYLOAD_RX,			// 5
-	// process payload data
-	PAYLOAD_PRO,		// 6
-	// receive communication data
-	COMM_RX,			// 7
-	// handle communication commands
-	COMM_HANDLE,		// 8
-	// send data to ground station
-	DATA_TX,			//9
-	NUM_TASKS,
-};
-
 /* List of task handles. The entries match up with enum task. */
 xTaskHandle task[9];
 
@@ -151,7 +125,7 @@ void sort_command_list()
 
 	// debug print the command list
 	for (i = 0; i < obc.command_num; i++) {
-		printf("cmd type: %i, time:%i, data:%i\n", obc.command_list[i].type, obc.command_list[i].execution_time, obc.command_list[i].data);
+		printf("cmd type: %i, time:%li, data:%i\n", obc.command_list[i].id, obc.command_list[i].execution_time, obc.command_list[i].data);
 	}
 	fflush(stdout);
 }
@@ -159,15 +133,20 @@ void sort_command_list()
 /*
  * Performs operations necessary for each obc command
  */
-int execute_obc_command(enum obc_command_type cmd, int option)
+int execute_obc_command(int cmd, int option)
 {
-	if (cmd >= CMD_MAX_NUM)
+	int task_id = cmd >> OBC_ID_TASK_BIT;
+	printf("cmd = %x, cmd-1 = %x\n", cmd, task_id);
+	// Check if there is more than one task bit sent
+	if ((task_id & (task_id - 1)) != 0) {
+		printf("Error: More than one task bit set\n");
 		return -1;
+	}
 
 	struct queue_message message;
 
-	switch (cmd) {
-		case CMD_SUN_POINT:
+	switch (task_id) {
+		case BIT(COMMAND):
 			message.id = ADC_SUN_POINT;
 			message.data = 0;
 
@@ -177,22 +156,19 @@ int execute_obc_command(enum obc_command_type cmd, int option)
 			}
 			// send message to adc to new target
 			break;
-		case CMD_NADIR_POINT:
-			message.id = ADC_NADIR_POINT;
-			message.data = 0;
+		case BIT(ATTITUDE):
+			// The message ID being sent to ADC is the bottom part of the command ID
+			message.id = cmd & (OBC_ID_TASK_BIT - 1);
+			// check that the command number is acceptable by adc
+			if (message.id >= ADC_MAX_COMMAND)
+				return -1;
+			message.data = option;
 
 			if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE) {
 				printf("Error sending adc queue message\n");
 				return -1;
 			}
-			// send message to adc to new target
 			break;
-		case CMD_BEGIN_IMAGE:
-			// send message to payload to begin imaging
-		case CMD_DOWNLINK:
-			// send message to communications to compile downlink packet and send it
-		case CMD_EDIT_PARAM:
-			// change a parameter in the FRAM
 		default:
 			return -1;
 	}
@@ -223,7 +199,7 @@ void task_command_handler(void *arg)
 			continue;
 		}
 
-		if (execute_obc_command(cmd.type, cmd.data) != 0){
+		if (execute_obc_command(cmd.id, cmd.data) != 0){
 			printf("error executing command");
 		}
 
@@ -288,19 +264,19 @@ void obc_init(void)
 	obc.mode = 1;
 
 	/* List of test obc_commands */
-	obc.command_list[0].type = CMD_SUN_POINT;
+	obc.command_list[0].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 0;
 	obc.command_list[0].data = 10;
 	obc.command_list[0].execution_time = 0;
 
-	obc.command_list[1].type = CMD_NADIR_POINT;
+	obc.command_list[1].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 2;
 	obc.command_list[1].data = 80;
-	obc.command_list[1].execution_time = 200;
+	obc.command_list[1].execution_time = 60;
 
-	obc.command_list[2].type = CMD_DOWNLINK;
+	obc.command_list[2].id = (BIT(ATTITUDE) | BIT(COMMAND)) << OBC_ID_TASK_BIT;
 	obc.command_list[2].data = 100;
 	obc.command_list[2].execution_time = 30;
 
-	obc.command_list[3].type = CMD_SUN_POINT;
+	obc.command_list[3].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 1;
 	obc.command_list[3].data = 10;
 	obc.command_list[3].execution_time = 100;
 	obc.command_num = 4;
@@ -320,7 +296,7 @@ void obc_main(void)
 	xTaskCreate(task_attitude, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queue, ATTITUDE_PRIORITY, &task[ATTITUDE]);
 	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, NULL, GPS_PRIORITY, &task[GPS]);
 	//xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
-	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[COMM_HANDLE]);
+	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[COMMAND]);
 
 
 #ifdef _DEBUG
