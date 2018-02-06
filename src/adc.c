@@ -35,24 +35,25 @@ void task_attitude(void *arg)
 		// We do a non-blocking check to see if there is a message waiting in the queue
 		if (xQueueReceive(queue, &message, 0) == pdTRUE) {
 			switch (message.id) {
-				case ADC_SUN_POINT:
-					printf("ADC switching to sun pointing\n");
+				case ADC_CMD_SUN_POINT:
+					debug("ADC switching to sun pointing\n");
 					break;
-				case ADC_NADIR_POINT:
-					printf("ADC switching to nadir pointing\n");
+				case ADC_CMD_NADIR_POINT:
+					debug("ADC switching to nadir pointing\n");
 					break;
-				case ADC_SET_REACT_SPEED:
-					printf("Setting the reaction wheel speed to %i\n", message.data);
+				case ADC_CMD_SET_REACT_SPEED:
+					debug("Setting the reaction wheel speed to %i\n", message.data);
 					break;
 				default:
-					printf("Error in ADC message");
+					error("Error in ADC message");
 					break;
 			}
 
-			fflush(stdout);
+
 		}
 
-
+		printf("time = %li\n", get_timestamp());
+		fflush(stdout);
 		vTaskDelay(100);
 	}
 }

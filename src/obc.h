@@ -7,7 +7,9 @@
 
 
 // choose whether system goes into debug mode or not
-//#define _DEBUG
+#define _DEBUG
+
+#define _UNUSED __attribute__((__unused__))
 
 /*
  * Bit selection.
@@ -23,23 +25,22 @@
 // Defines which bit in the obc_command.id begins referencing the task id
 #define OBC_ID_TASK_BIT 4
 
-/* List of all possible Satellite modes */
-enum mode {
-	MODE_INITIAL,
-	MODE_SUN_POINTING,
-	MODE_NADIR_POINTING,
-	MODE_SAFETY,
-	MODE_MAX_NUM,
-};
+#ifdef _DEBUG
+#define debug(...) printf(__VA_ARGS__)
+#else
+#define debug(...)
+#endif
+
+#define error(...) printf(__VA_ARGS__)
 
 // All potential obc commands
 enum obc_command_type {
-	CMD_SUN_POINT,
-	CMD_NADIR_POINT,
-	CMD_BEGIN_IMAGE,
-	CMD_DOWNLINK,
-	CMD_EDIT_PARAM,
-	CMD_MAX_NUM,
+	OBC_CMD_SUN_POINT,
+	OBC_CMD_NADIR_POINT,
+	OBC_CMD_BEGIN_IMAGE,
+	OBC_CMD_DOWNLINK,
+	OBC_CMD_EDIT_PARAM,
+	OBC_CMD_MAX,
 };
 
 /* List of tasks on the system that can be turned on and off. */
@@ -73,12 +74,14 @@ enum task {
 struct obc_command {
 	int id;
 	long execution_time;
-	int data;
+	long data;
 };
 
 struct queue_message {
 	int id;
-	int data;
+	long data;
 };
 
 void obc_main(void);
+
+long get_timestamp();

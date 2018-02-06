@@ -11,12 +11,14 @@
 #include <task.h>
 #include <stdio.h>
 
-void task_housekeep(void *arg)
+#include "obc.h"
+
+void task_housekeep(void _UNUSED *arg)
 {
 	const int delay = (300000 / portTICK_RATE_MS); // every 5 minutes
 
 	for (;;) {
-		printf("Now performing Housekeeping task\n");
+		debug("Now performing Housekeeping task\n");
 		fflush(stdout);
 		vTaskDelay(delay);
 	}

@@ -43,6 +43,14 @@
 #define DATA_TX_PRIORITY 		HIGH_PRIORITY  		// frame and send data to ground
 #define SD_PRIORITY				MEDIUM_PRIORITY		// send and retrieve SD card data
 
+/* List of all possible Satellite modes */
+enum mode {
+	MODE_INITIAL,
+	MODE_SUN_POINTING,
+	MODE_NADIR_POINTING,
+	MODE_SAFETY,
+	MODE_MAX_NUM,
+};
 
 /* List of task handles. The entries match up with enum task. */
 xTaskHandle task[9];
@@ -57,7 +65,6 @@ xTaskHandle task[9];
  *
  * The numbering of the tasks are shown in enum task, where each entry represents the bit number.
  */
-
 const unsigned int mode_mask[] = {
 									0b100000000,	// Initial Mode
 									0b0010011,	// Sun-pointing
@@ -68,32 +75,41 @@ const unsigned int mode_mask[] = {
 struct obc {
 	/* Debugging list of obc_commands */
 	struct obc_command command_list[10];
+	// The number of commands in the command list
 	int command_num;
-	int mode;
+
+	// Current mode of the satellite
+	enum mode mode;
+	// The last GPS time
+	long gps_time;
+	// The tick count at that GPS time
+	int gps_tick;
 };
 
 static struct obc obc;
 
-xQueueHandle adc_queue;
+xQueueHandle adc_queue, gps_queue;
 
-void mode_switching(void *arg) {
+/*
+ * Task for switching which mode the satellite is in.
+ *
+ * It suspends all of the tasks that are not needed in that mode.
+ */
+void mode_switching(void _UNUSED *arg) {
 	size_t i;
 
 	// loop forever
 	for (;;) {
-		printf("now switching to mode %i\n", obc.mode);
+		debug("now switching to mode %i\n", obc.mode);
 		for (i = 0; i < ARRAY_SIZE(task); ++i) {
 			if (task[i] == 0)
 				continue;
 			else if (mode_mask[obc.mode] & BIT(i)) {
 				vTaskResume(task[i]);
-				//printf("resume task %i\n", i + 1);
 			} else {
 				vTaskSuspend(task[i]);
-				//printf("suspend task %i\n", i + 1);
 			}
 		}
-		//fflush(stdout);
 
 		// once the mode has been changed, we can suspend this task until the next time
 		// we need to change modes
@@ -101,7 +117,9 @@ void mode_switching(void *arg) {
 	}
 }
 
-
+/*
+ * Function to sort the obc commands in order of execution time
+ */
 void sort_command_list()
 {
 	int i, flag = 1;
@@ -110,8 +128,6 @@ void sort_command_list()
 	/* Simple bubble sort to sort commands in terms of execution time */
 	while(flag != 0) {
 		flag = 0;
-		printf("looping\n");
-		fflush(stdout);
 		for (i = 0; i < obc.command_num - 1; i++) {
 			if (obc.command_list[i].execution_time > obc.command_list[i + 1].execution_time) {
 				tmp = obc.command_list[i];
@@ -124,48 +140,60 @@ void sort_command_list()
 	}
 
 	// debug print the command list
-	for (i = 0; i < obc.command_num; i++) {
-		printf("cmd type: %i, time:%li, data:%i\n", obc.command_list[i].id, obc.command_list[i].execution_time, obc.command_list[i].data);
-	}
-	fflush(stdout);
+//	for (i = 0; i < obc.command_num; i++) {
+//		printf("cmd type: %i, time:%li, data:%i\n", obc.command_list[i].id, obc.command_list[i].execution_time, obc.command_list[i].data);
+//	}
+//	fflush(stdout);
+}
+
+/*
+ * Return the timestamp. Calculated with the last update from GPS data.
+ *
+ * TODO: Fix wrap around. What happens when the time overflows?
+ */
+long get_timestamp()
+{
+	int ticks_passed = xTaskGetTickCount() - obc.gps_tick;
+
+	printf("Ticks passed = %i, gps_tick=%i\n", ticks_passed, obc.gps_tick);
+	return obc.gps_time + ticks_passed * portTICK_PERIOD_MS;
 }
 
 /*
  * Performs operations necessary for each obc command
  */
-int execute_obc_command(int cmd, int option)
+int execute_obc_command(int cmd, long option)
 {
 	int task_id = cmd >> OBC_ID_TASK_BIT;
-	printf("cmd = %x, cmd-1 = %x\n", cmd, task_id);
+	debug("cmd = %x, cmd-1 = %x\n", cmd, task_id);
 	// Check if there is more than one task bit sent
 	if ((task_id & (task_id - 1)) != 0) {
-		printf("Error: More than one task bit set\n");
+		error("Error: More than one task bit set\n");
 		return -1;
 	}
 
 	struct queue_message message;
+	// The message ID being sent to the task is the bottom part of the command ID
+	message.id = cmd & (OBC_ID_TASK_BIT - 1);
+	message.data = option;
 
 	switch (task_id) {
+		// Command handling command
 		case BIT(COMMAND):
-			message.id = ADC_SUN_POINT;
-			message.data = 0;
-
 			if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE) {
-				printf("Error sending adc queue message\n");
+				error("Error sending adc queue message\n");
 				return -1;
 			}
 			// send message to adc to new target
 			break;
+		// ADC command
 		case BIT(ATTITUDE):
-			// The message ID being sent to ADC is the bottom part of the command ID
-			message.id = cmd & (OBC_ID_TASK_BIT - 1);
 			// check that the command number is acceptable by adc
-			if (message.id >= ADC_MAX_COMMAND)
+			if (message.id >= ADC_CMD_MAX)
 				return -1;
-			message.data = option;
 
 			if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE) {
-				printf("Error sending adc queue message\n");
+				error("Error sending adc queue message\n");
 				return -1;
 			}
 			break;
@@ -176,16 +204,30 @@ int execute_obc_command(int cmd, int option)
 
 }
 
-void task_command_handler(void *arg)
+/*
+ * Task to execute obc commands at the appropriate time.
+ */
+void task_command_handler(void _UNUSED *arg)
 {
 	struct obc_command cmd;
-	int i;
+	int ticks;
+	struct gps_queue_message message;
 
 	// Main loop
 	for (;;) {
+		// Check if there is a message from GPS updating the time.
+		if (xQueueReceive(gps_queue, &message, 0) == pdTRUE) {
+			obc.gps_time = message.time;
+			obc.gps_tick = message.tick;
+			printf("Setting gps_tick to %i\n", message.tick);
+			printf("GPS tick = %i", obc.gps_tick);
+		}
+		//debug("Time running = %li\n", get_timestamp());
+		fflush(stdout);
+
 		// read the command stack pointer and grab the next command
 		if (obc.command_num == 0) {
-			printf("no tasks to run\n");
+			debug("no tasks to run\n");
 			fflush(stdout);
 			vTaskDelay(5000);
 			continue;
@@ -193,14 +235,14 @@ void task_command_handler(void *arg)
 		cmd = obc.command_list[0];
 
 		// if the command should be run now or delayed
-		if (cmd.execution_time > i) {
-			i++;
-			vTaskDelay(100);
+		long timestamp = get_timestamp();
+		if (cmd.execution_time > timestamp) {
+			vTaskDelay((cmd.execution_time - timestamp) / portTICK_PERIOD_MS);
 			continue;
 		}
 
 		if (execute_obc_command(cmd.id, cmd.data) != 0){
-			printf("error executing command");
+			error("error executing command\n");
 		}
 
 		// remove the command just executed
@@ -210,7 +252,7 @@ void task_command_handler(void *arg)
 		// sort the command list
 		sort_command_list();
 
-		vTaskDelay(1000);
+		//vTaskDelay(100);
 	}
 }
 
@@ -245,9 +287,9 @@ void task_debug(void *arg)
 		message.data = num;
 
 		if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE)
-			printf("Error sending adc queue message\n");
+			error("Error sending adc queue message\n");
 
-		printf("sending num = %i\n", num);
+		debug("sending num = %i\n", num);
 		fflush(stdout);
 
 		//vTaskResume(*hmode_switch);
@@ -266,19 +308,19 @@ void obc_init(void)
 	/* List of test obc_commands */
 	obc.command_list[0].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 0;
 	obc.command_list[0].data = 10;
-	obc.command_list[0].execution_time = 0;
+	obc.command_list[0].execution_time = 100;
 
 	obc.command_list[1].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 2;
 	obc.command_list[1].data = 80;
-	obc.command_list[1].execution_time = 60;
+	obc.command_list[1].execution_time = 500;
 
 	obc.command_list[2].id = (BIT(ATTITUDE) | BIT(COMMAND)) << OBC_ID_TASK_BIT;
 	obc.command_list[2].data = 100;
-	obc.command_list[2].execution_time = 30;
+	obc.command_list[2].execution_time = 3400;
 
 	obc.command_list[3].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 1;
 	obc.command_list[3].data = 10;
-	obc.command_list[3].execution_time = 100;
+	obc.command_list[3].execution_time = 8524;
 	obc.command_num = 4;
 }
 
@@ -288,19 +330,25 @@ void obc_init(void)
 void obc_main(void)
 {
 	obc_init();
-	xTaskHandle task_mode;
-	adc_queue = xQueueCreate(10, sizeof(struct queue_message));
+//	xTaskHandle task_mode;
+	adc_queue = xQueueCreate(5, sizeof(struct queue_message));
+	gps_queue = xQueueCreate(2, sizeof(struct gps_queue_message));
+
+	if (gps_queue == 0)
+	{
+		error("Could not create gps queue\n");
+	}
 
 	/* Create tasks */
 	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, NULL, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
 	xTaskCreate(task_attitude, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queue, ATTITUDE_PRIORITY, &task[ATTITUDE]);
-	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, NULL, GPS_PRIORITY, &task[GPS]);
+	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, (void *) &gps_queue, GPS_PRIORITY, &task[GPS]);
 	//xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
 	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[COMMAND]);
 
 
 #ifdef _DEBUG
-	xTaskCreate(task_debug, (const char*)"Debug", configMINIMAL_STACK_SIZE, &task_mode, configMAX_PRIORITIES-2, NULL);
+	//xTaskCreate(task_debug, (const char*)"Debug", configMINIMAL_STACK_SIZE, &task_mode, configMAX_PRIORITIES-2, NULL);
 #endif
 
 

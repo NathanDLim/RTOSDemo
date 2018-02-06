@@ -14,26 +14,35 @@
 
 #include "gps.h"
 
-//xSemaphoreHandle gps_mutex;
+#include <stdio.h>
 
-static struct gps_data gps_data;
+//static struct gps_data gps_data;
 
 void task_gps(void *arg)
 {
-	//gps_mutex = xSemaphoreCreateMutex();
-	//if (gps_mutex == NULL)
-	//	printf("Error creating GPS mutex!");
+	xQueueHandle queue = *(xQueueHandle *)arg;
+	struct gps_queue_message message;
 
 	for (;;) {
 		printf("GPS task running\n");
+
+		message.id = 101;
+		// message id is the tick count when the gps was read
+		message.tick = xTaskGetTickCount();
+		// message data is the time that was read
+		// It currently uses the tick count. It will be updated once GPS is attached
+		message.time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+		printf("GPS tick = %i, time = %li\n", message.tick, message.time);
 		fflush(stdout);
+		if (xQueueOverwrite(queue, (void *) &message) == pdFALSE) {
+			printf("Error sending gps queue message\n");
+			break;
+		}
+
 		vTaskDelay(5000);
 	}
+
+	// Should never reach this point;
+	for (;;) ;
 }
 
-void gps_get_data(struct gps_data data)
-{
-//	xSemaphoreTake(&gps_mutex, portMAX_DELAY);
-//	memcpy(&data, &gps_data, sizeof(struct gps_data));
-//	xSempaphoreGive(&gps_mutex);
-}

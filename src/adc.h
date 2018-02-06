@@ -12,11 +12,11 @@
 // A list of the commands that can be sent to the adc task
 enum adc_commands {
 	// Configure the pointing target
-	ADC_SUN_POINT,
-	ADC_NADIR_POINT,
+	ADC_CMD_SUN_POINT,
+	ADC_CMD_NADIR_POINT,
 	// Set the reaction wheel's speed
-	ADC_SET_REACT_SPEED,
-	ADC_MAX_COMMAND,
+	ADC_CMD_SET_REACT_SPEED,
+	ADC_CMD_MAX,
 };
 
 void task_attitude(void *arg);
