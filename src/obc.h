@@ -59,20 +59,22 @@ enum task {
 	GPS,
 	// gather and store sensor data
 	HOUSEKEEP,
+	// write data to file
+	FILE_W,
 	NUM_TASKS,
 };
 
 /*
  * The struct which holds a command from ground station.
  *
- * 'id' is an integer with two parts. The top part is to identify which task the command relates to, and
+ * 'id' is an unsigned integer with two parts. The top part is to identify which task the command relates to, and
  * the bottom part identifies a specific action related to that task. The top part should only have one bit set,
  * and the set bit indicates which task it goes to. The bit number is based off the 'task' enum.
  *
  * The 'OBC_ID_TASK_BIT' macro indicates where the split in the id occurs.
  */
 struct obc_command {
-	int id;
+	uint16_t id;
 	long execution_time;
 	long data;
 };

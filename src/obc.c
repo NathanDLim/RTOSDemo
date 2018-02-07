@@ -20,9 +20,9 @@
 #include "obc.h"
 #include "gps.h"
 #include "fram.h"
+#include "file_writer.h"
 
 #include <stdio.h>
-
 
 #define HIGH_PRIORITY		configMAX_PRIORITIES-1
 #define MEDIUM_PRIORITY		configMAX_PRIORITIES-2
@@ -32,15 +32,13 @@
 #define HOUSEKEEP_PRIORITY 		MEDIUM_PRIORITY
 #define MODESWITCH_PRIORITY 	LOW_PRIORITY
 #define ERROR_PRIORITY			MEDIUM_PRIORITY		// check and handle errors
-#define ATTITUDE_PRIORITY 		MEDIUM_PRIORITY
-#define DETUMBLE_PRIORITY 		MEDIUM_PRIORITY
-#define REBASE_ADC_PRIORITY 	LOW_PRIORITY
+#define ATTITUDE_PRIORITY 		LOW_PRIORITY
 #define GPS_PRIORITY 			MEDIUM_PRIORITY
-#define PAYLOAD_RX_PRIORITY 	HIGH_PRIORITY 		// retrieve payload data
 #define PAYLOAD_PRO_PRIORITY 	MEDIUM_PRIORITY		// process payload data
 #define COMM_RX_PRIORITY 		MEDIUM_PRIORITY 	// receive and process commands
 #define COMM_HANDLE_PRIORITY	MEDIUM_PRIORITY		// command timing setup
 #define DATA_TX_PRIORITY 		HIGH_PRIORITY  		// frame and send data to ground
+#define FILE_W_PRIORITY 		MEDIUM_PRIORITY		// write data to file
 #define SD_PRIORITY				MEDIUM_PRIORITY		// send and retrieve SD card data
 
 /* List of all possible Satellite modes */
@@ -89,7 +87,7 @@ struct obc {
 
 static struct obc obc;
 
-xQueueHandle adc_queue, gps_queue;
+xQueueHandle adc_queue, gps_queue, file_w_queue;
 
 /*
  * Task for switching which mode the satellite is in.
@@ -156,16 +154,16 @@ long obc_get_timestamp()
 {
 	int ticks_passed = xTaskGetTickCount() - obc.gps_tick;
 
-	printf("Ticks passed = %i, gps_tick=%i\n", ticks_passed, obc.gps_tick);
+	//printf("Ticks passed = %i, gps_tick=%i\n", ticks_passed, obc.gps_tick);
 	return obc.gps_time + ticks_passed * portTICK_PERIOD_MS;
 }
 
 /*
  * Performs operations necessary for each obc command
  */
-int execute_obc_command(int cmd, long option)
+int execute_obc_command(uint16_t cmd, long option)
 {
-	int task_id = cmd >> OBC_ID_TASK_BIT;
+	uint16_t task_id = cmd >> OBC_ID_TASK_BIT;
 	debug("cmd = %x, cmd-1 = %x\n", cmd, task_id);
 	// Check if there is more than one task bit sent
 	if ((task_id & (task_id - 1)) != 0) {
@@ -211,7 +209,6 @@ int execute_obc_command(int cmd, long option)
 void task_command_handler(void _UNUSED *arg)
 {
 	struct obc_command cmd;
-	int ticks;
 	struct gps_queue_message message;
 
 	// Main loop
@@ -258,7 +255,7 @@ void task_command_handler(void _UNUSED *arg)
 }
 
 #ifdef _DEBUG
-void task_debug(void *arg)
+void task_debug(void _UNUSED *arg)
 {
 	//xTaskHandle *hmode_switch = (xTaskHandle *)arg;
 	unsigned int num = 0;
@@ -334,6 +331,7 @@ void obc_main(void)
 //	xTaskHandle task_mode;
 	adc_queue = xQueueCreate(5, sizeof(struct queue_message));
 	gps_queue = xQueueCreate(1, sizeof(struct gps_queue_message));
+	file_w_queue = xQueueCreate(10, sizeof(struct file_queue_message));
 
 	if (gps_queue == 0)
 	{
@@ -341,18 +339,16 @@ void obc_main(void)
 	}
 
 	/* Create tasks */
-	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, NULL, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
+	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, (void *) &file_w_queue, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
 	xTaskCreate(task_attitude, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queue, ATTITUDE_PRIORITY, &task[ATTITUDE]);
 	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, (void *) &gps_queue, GPS_PRIORITY, &task[GPS]);
 	//xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
 	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[COMMAND]);
-
+	xTaskCreate(task_file_writer, (const char*)"File Writer", configMINIMAL_STACK_SIZE, (void *) &file_w_queue, FILE_W_PRIORITY, &task[FILE_W]);
 
 #ifdef _DEBUG
 	//xTaskCreate(task_debug, (const char*)"Debug", configMINIMAL_STACK_SIZE, &task_mode, configMAX_PRIORITIES-2, NULL);
 #endif
-
-
 
 	vTaskStartScheduler();
 }
