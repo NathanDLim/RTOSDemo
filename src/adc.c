@@ -48,11 +48,9 @@ void task_attitude(void *arg)
 					error("Error in ADC message");
 					break;
 			}
-
-
 		}
 
-		printf("time = %li\n", get_timestamp());
+		printf("time = %li\n", obc_get_timestamp());
 		fflush(stdout);
 		vTaskDelay(100);
 	}

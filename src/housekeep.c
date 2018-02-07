@@ -19,6 +19,9 @@ void task_housekeep(void _UNUSED *arg)
 
 	for (;;) {
 		debug("Now performing Housekeeping task\n");
+		// TODO: gather all of the data and create a housekeeping packet
+
+		long time = get_timestamp();
 		fflush(stdout);
 		vTaskDelay(delay);
 	}

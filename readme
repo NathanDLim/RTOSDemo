@@ -1,0 +1,10 @@
+#Programming style-guide
+
+Task function names shall be task_<name>(void *arg)
+	For example "task_adc"
+
+Functions declared in header files shall have a prefix designating the file name it comes from.
+	For example, the function "get_timestamp" declared in obc.h will be called "obc_get_timestamp". This is in order to prevent possible name conflicts.
+
+
+

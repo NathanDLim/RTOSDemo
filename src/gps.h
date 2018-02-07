@@ -11,7 +11,7 @@ struct gps_queue_message {
 	long time;
 	// The tick at time of timestamp
 	int tick;
-	// Add in position data
+	// TODO: Add in position data
 };
 
 struct gps_data {

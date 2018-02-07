@@ -80,10 +80,11 @@ struct obc {
 
 	// Current mode of the satellite
 	enum mode mode;
-	// The last GPS time
+	// The last GPS update
 	long gps_time;
-	// The tick count at that GPS time
+	// The tick count at the GPS update time
 	int gps_tick;
+	// TODO: add GPS position data at last update
 };
 
 static struct obc obc;
@@ -151,7 +152,7 @@ void sort_command_list()
  *
  * TODO: Fix wrap around. What happens when the time overflows?
  */
-long get_timestamp()
+long obc_get_timestamp()
 {
 	int ticks_passed = xTaskGetTickCount() - obc.gps_tick;
 
@@ -222,7 +223,7 @@ void task_command_handler(void _UNUSED *arg)
 			printf("Setting gps_tick to %i\n", message.tick);
 			printf("GPS tick = %i", obc.gps_tick);
 		}
-		//debug("Time running = %li\n", get_timestamp());
+		//debug("Time running = %li\n", obc_get_timestamp());
 		fflush(stdout);
 
 		// read the command stack pointer and grab the next command
@@ -235,7 +236,7 @@ void task_command_handler(void _UNUSED *arg)
 		cmd = obc.command_list[0];
 
 		// if the command should be run now or delayed
-		long timestamp = get_timestamp();
+		long timestamp = obc_get_timestamp();
 		if (cmd.execution_time > timestamp) {
 			vTaskDelay((cmd.execution_time - timestamp) / portTICK_PERIOD_MS);
 			continue;
@@ -332,7 +333,7 @@ void obc_main(void)
 	obc_init();
 //	xTaskHandle task_mode;
 	adc_queue = xQueueCreate(5, sizeof(struct queue_message));
-	gps_queue = xQueueCreate(2, sizeof(struct gps_queue_message));
+	gps_queue = xQueueCreate(1, sizeof(struct gps_queue_message));
 
 	if (gps_queue == 0)
 	{
