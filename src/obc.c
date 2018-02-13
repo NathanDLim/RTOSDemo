@@ -175,7 +175,7 @@ int execute_obc_command(uint16_t cmd, long option)
 			// send message to adc to new target
 			break;
 		// ADC command
-		case BIT(ATTITUDE):
+		case BIT(ADC):
 			// check that the command number is acceptable by adc
 			if (message.id >= ADC_CMD_MAX)
 				return -1;
@@ -302,22 +302,25 @@ void obc_init(void)
 	gps_init();
 	obc.mode = 1;
 
+	/* This part is all for debugging */
+	long start = gps_get_timestamp();
+
 	/* List of test obc_commands */
-	obc.command_list[0].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 0;
+	obc.command_list[0].id = (BIT(ADC) << OBC_ID_TASK_BIT) | 0;
 	obc.command_list[0].data = 10;
-	obc.command_list[0].execution_time = 100;
+	obc.command_list[0].execution_time = start + 2000;
 
 	obc.command_list[1].id = (BIT(COMM_TX) << OBC_ID_TASK_BIT) | 0;
-	obc.command_list[1].data = 0x20000000;
-	obc.command_list[1].execution_time = 500;
+	obc.command_list[1].data = 43 << 24;
+	obc.command_list[1].execution_time = start + 4000;
 
-	obc.command_list[2].id = (BIT(ATTITUDE) | BIT(CONTROL)) << OBC_ID_TASK_BIT;
+	obc.command_list[2].id = (BIT(ADC) | BIT(CONTROL)) << OBC_ID_TASK_BIT;
 	obc.command_list[2].data = 100;
-	obc.command_list[2].execution_time = 3400;
+	obc.command_list[2].execution_time = start + 3000;
 
-	obc.command_list[3].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 1;
+	obc.command_list[3].id = (BIT(ADC) << OBC_ID_TASK_BIT) | 1;
 	obc.command_list[3].data = 10;
-	obc.command_list[3].execution_time = 8524;
+	obc.command_list[3].execution_time = start + 6000;
 	obc.command_num = 4;
 }
 
@@ -338,7 +341,7 @@ void obc_main(void)
 
 	/* Create tasks */
 	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, (void *) &file_w_queue, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
-	xTaskCreate(task_attitude, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queue, ATTITUDE_PRIORITY, &task[ATTITUDE]);
+	xTaskCreate(task_adc, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queue, ATTITUDE_PRIORITY, &task[ADC]);
 	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, (void *) &gps_queue, GPS_PRIORITY, &task[GPS]);
 	//xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
 	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[CONTROL]);

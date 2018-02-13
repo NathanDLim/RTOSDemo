@@ -31,7 +31,7 @@ void task_comm(void *arg)
 {
 	xQueueHandle queue = *(xQueueHandle *)arg;
 	struct queue_message message;
-	char name[20];
+	char name[32];
 	char buf[200];
 
 	for (;;) {
@@ -40,7 +40,8 @@ void task_comm(void *arg)
 
 			switch (message.id) {
 				case COMM_CMD_ADD_HOUSEKEEP:
-					debug("Comm adding housekeeping data from day %i\n", day);
+					snprintf(name, ARRAY_SIZE(name), "housekeep/housekeep_%04d", day);
+					debug("Comm adding housekeeping data from file %s\n", name);
 					break;
 				case COMM_CMD_ADD_PAYLOAD:
 					debug("Comm adding payload data from day %i\n", day);
@@ -52,17 +53,18 @@ void task_comm(void *arg)
 					error("Error in Comm message");
 					break;
 			}
+
 //			FILE *fp;
-//			snprintf(name, ARRAY_SIZE(name), "housekeep/housekeep_%i", message.data);
 //			fp = fopen(name, "r");
-//			if (fo == NULL) {
+//			if (fp == NULL) {
 //				error("ERROR: file not found\n");
 //				continue;
 //			}
 //
-//
-//			 while (!fgets(buf, ARRAY_SIZE(buf), fp))
+//			 while (fgets(buf, ARRAY_SIZE(buf), fp) != NULL) {
 //				 printf(buf);
+//			 }
+//			 fflush(stdout);
 
 		}
 

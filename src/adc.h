@@ -19,8 +19,6 @@ enum adc_commands {
 	ADC_CMD_MAX,
 };
 
-void task_attitude(void *arg);
-void task_detumble(void *arg);
-void task_rebase_adc(void *arg);
+void task_adc(void *arg);
 
 #endif /* ADC_H_ */

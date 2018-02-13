@@ -26,7 +26,7 @@
  *
  * In: A handle to a queue. All messaged to the adc task come through this queue.
  */
-void task_attitude(void *arg)
+void task_adc(void *arg)
 {
 	xQueueHandle queue = *(xQueueHandle *)arg;
 	struct queue_message message;

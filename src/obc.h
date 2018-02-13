@@ -47,8 +47,8 @@ enum obc_command_type {
 enum task {
 	// command control task
 	CONTROL,
-	// calculate attitude controls
-	ATTITUDE,
+	// perform all adc functions
+	ADC,
 	// process payload data
 	PAYLOAD,
 	// receive communication data
