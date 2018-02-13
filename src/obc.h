@@ -94,12 +94,4 @@ struct queue_message {
  */
 void obc_main(void);
 
-/*
- * Function: obc_get_timestamp
- *
- * This function returns the current timestamp based on the last data received by the GPS task.
- *
- * It should be ok for any task to use this. There will be no synchronization issues because it is
- *  only a single value. Doesn't matter much if it is the old or new value.
- */
-long obc_get_timestamp();
+

@@ -33,7 +33,7 @@ void task_file_writer(void *arg)
 			FILE *fp;
 			switch(message.id) {
 				case FOLDER_PAYLOAD:
-					snprintf(name, ARRAY_SIZE(name), "payload/%s", message.file_name);
+					snprintf(name, ARRAY_SIZE(name), "payload/payload%s", message.file_name);
 					break;
 				case FOLDER_HOUSEKEEP:
 					snprintf(name, ARRAY_SIZE(name), "housekeep/housekeep_%s", message.file_name);
@@ -45,7 +45,7 @@ void task_file_writer(void *arg)
 			debug("printing to file w/ name %s\n", name);
 			fp = fopen(name, "a");
 			if (fp == NULL) {
-				error("ERROR: cannot open file %s\n", message.file_name);
+				error("ERROR: cannot open file %s\n", name);
 				continue;
 			}
 			fprintf(fp, "%s", message.data);

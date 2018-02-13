@@ -13,32 +13,34 @@
 #include <semphr.h>
 
 #include "gps.h"
+#include "obc.h"
 
 #include <stdio.h>
 
-//static struct gps_data gps_data;
+static struct gps_data gps_data;
+SemaphoreHandle_t gps_mutex;
 
-void task_gps(void *arg)
+void gps_init()
 {
-	xQueueHandle queue = *(xQueueHandle *)arg;
-	struct gps_queue_message message;
+	if (gps_mutex == NULL) {
+		gps_mutex = xSemaphoreCreateMutex();
+	}
+}
+
+void task_gps(void _UNUSED *arg)
+{
+
 
 	for (;;) {
 		printf("GPS task running\n");
 
-		message.id = 101;
-		// The tick count when the gps was read
-		message.tick = xTaskGetTickCount();
-		// message.time is the time that the GPS gave
-		// It currently uses the tick count. It will be updated once GPS is attached
-		message.time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+		// Read the GPS
 
-		// TODO: add position
-		printf("GPS tick = %i, time = %li\n", message.tick, message.time);
-		fflush(stdout);
-		if (xQueueOverwrite(queue, (void *) &message) == pdFALSE) {
-			printf("Error sending gps queue message\n");
-			break;
+		// Update the gps_data
+		if (gps_mutex != NULL && xSemaphoreTake(gps_mutex, 50) == pdTRUE) {
+			gps_data.tick = xTaskGetTickCount();
+			gps_data.time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+			xSemaphoreGive(gps_mutex);
 		}
 
 		vTaskDelay(5000);
@@ -46,5 +48,25 @@ void task_gps(void *arg)
 
 	// Should never reach this point;
 	for (;;) ;
+}
+
+/*
+ * Return the timestamp. Calculated with the last update from GPS data.
+ *
+ * TODO: Fix wrap around. What happens when the time overflows?
+ */
+long gps_get_timestamp()
+{
+	if (gps_mutex != NULL && xSemaphoreTake(gps_mutex, 10) == pdTRUE) {
+		int ticks_passed = xTaskGetTickCount() - gps_data.tick;
+		int time = gps_data.time + ticks_passed * portTICK_PERIOD_MS;
+
+		xSemaphoreGive(gps_mutex);
+		return time;
+	}
+
+	error("ERROR: GPS semaphore take failure\n");
+
+	return 0;
 }
 

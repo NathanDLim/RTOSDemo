@@ -148,19 +148,6 @@ void sort_command_list()
 }
 
 /*
- * Return the timestamp. Calculated with the last update from GPS data.
- *
- * TODO: Fix wrap around. What happens when the time overflows?
- */
-long obc_get_timestamp()
-{
-	int ticks_passed = xTaskGetTickCount() - obc.gps_tick;
-
-	//printf("Ticks passed = %i, gps_tick=%i\n", ticks_passed, obc.gps_tick);
-	return obc.gps_time + ticks_passed * portTICK_PERIOD_MS;
-}
-
-/*
  * Performs operations necessary for each obc command
  */
 int execute_obc_command(uint16_t cmd, long option)
@@ -213,6 +200,8 @@ int execute_obc_command(uint16_t cmd, long option)
 
 /*
  * Task to execute obc commands at the appropriate time.
+ *
+ * TODO: There should be some obc_commands added in to do clean up and data management from time to time.
  */
 void task_command_handler(void _UNUSED *arg)
 {
@@ -242,7 +231,7 @@ void task_command_handler(void _UNUSED *arg)
 		cmd = obc.command_list[0];
 
 		// if the command should be run now or delayed
-		long timestamp = obc_get_timestamp();
+		long timestamp = gps_get_timestamp();
 		if (cmd.execution_time > timestamp) {
 			vTaskDelay((cmd.execution_time - timestamp) / portTICK_PERIOD_MS);
 			continue;
@@ -310,6 +299,7 @@ void task_debug(void _UNUSED *arg)
  */
 void obc_init(void)
 {
+	gps_init();
 	obc.mode = 1;
 
 	/* List of test obc_commands */

@@ -14,6 +14,7 @@
 #include <stdio.h>
 
 #include "obc.h"
+#include "gps.h"
 #include "file_writer.h"
 
 #define HOUSEKEEP_PACKET_SIZE 200
@@ -26,18 +27,15 @@ void task_housekeep(void *arg)
 	char packet[HOUSEKEEP_PACKET_SIZE];
 	struct file_queue_message message;
 
-
-
 	for (;;) {
 		debug("Now performing Housekeeping task\n");
 		// TODO: gather all of the data and create a housekeeping packet
 
-
 		// get the timestamp for this housekeeping data
-		long time = obc_get_timestamp();
+		long time = gps_get_timestamp();
 
 		// place the housekeep data in the buffer
-		snprintf(packet, ARRAY_SIZE(packet), "%li\n", time);
+		snprintf(packet, ARRAY_SIZE(packet), "%li Housekeeping data!!\n", time);
 
 		message.id = FOLDER_HOUSEKEEP;
 		message.data = packet;

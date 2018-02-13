@@ -17,6 +17,7 @@
 
 #include "adc.h"
 #include "obc.h"
+#include "gps.h"
 
 /*
  * The Attitude and Determination Control (ADC) task.
@@ -42,7 +43,7 @@ void task_attitude(void *arg)
 					debug("ADC switching to nadir pointing\n");
 					break;
 				case ADC_CMD_SET_REACT_SPEED:
-					debug("Setting the reaction wheel speed to %i\n", message.data);
+					debug("Setting the reaction wheel speed to %li\n", message.data);
 					break;
 				default:
 					error("Error in ADC message");
@@ -50,7 +51,7 @@ void task_attitude(void *arg)
 			}
 		}
 
-		printf("time = %li\n", obc_get_timestamp());
+		printf("time = %li\n", gps_get_timestamp());
 		fflush(stdout);
 		vTaskDelay(100);
 	}
