@@ -46,7 +46,7 @@ enum obc_command_type {
 /* List of tasks on the system that can be turned on and off. */
 enum task {
 	// command control task
-	COMMAND,
+	CONTROL,
 	// calculate attitude controls
 	ATTITUDE,
 	// process payload data
@@ -54,7 +54,7 @@ enum task {
 	// receive communication data
 	COMM_RX,
 	// send data to ground station
-	DATA_TX,
+	COMM_TX,
 	// gather GPS data
 	GPS,
 	// gather and store sensor data

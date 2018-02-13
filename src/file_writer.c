@@ -36,14 +36,14 @@ void task_file_writer(void *arg)
 					snprintf(name, ARRAY_SIZE(name), "payload/%s", message.file_name);
 					break;
 				case FOLDER_HOUSEKEEP:
-					snprintf(name, ARRAY_SIZE(name), "housekeep/%s", message.file_name);
+					snprintf(name, ARRAY_SIZE(name), "housekeep/housekeep_%s", message.file_name);
 					break;
 				default:
 					error("ERROR: Invalid folder\n");
 					continue;
 			}
 			debug("printing to file w/ name %s\n", name);
-			fp = fopen(name, "w");
+			fp = fopen(name, "a");
 			if (fp == NULL) {
 				error("ERROR: cannot open file %s\n", message.file_name);
 				continue;

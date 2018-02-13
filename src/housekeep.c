@@ -26,6 +26,8 @@ void task_housekeep(void *arg)
 	char packet[HOUSEKEEP_PACKET_SIZE];
 	struct file_queue_message message;
 
+
+
 	for (;;) {
 		debug("Now performing Housekeeping task\n");
 		// TODO: gather all of the data and create a housekeeping packet
@@ -33,12 +35,14 @@ void task_housekeep(void *arg)
 
 		// get the timestamp for this housekeeping data
 		long time = obc_get_timestamp();
-		snprintf(packet, ARRAY_SIZE(packet), "%li", time);
+
+		// place the housekeep data in the buffer
+		snprintf(packet, ARRAY_SIZE(packet), "%li\n", time);
 
 		message.id = FOLDER_HOUSEKEEP;
 		message.data = packet;
 		message.size = HOUSEKEEP_PACKET_SIZE;
-		snprintf(message.file_name, 10, "%li", time);
+		snprintf(message.file_name, ARRAY_SIZE(message.file_name), "%04d", 5);
 		if (xQueueSend(queue, (void *) &message, 0) == pdFALSE)
 					error("Error sending housekeep queue message\n");
 //		fflush(stdout);

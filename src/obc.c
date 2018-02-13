@@ -15,9 +15,10 @@
 #include <task.h>
 #include <queue.h>
 
+#include "obc.h"
+#include "comm.h"
 #include "housekeep.h"
 #include "adc.h"
-#include "obc.h"
 #include "gps.h"
 #include "fram.h"
 #include "file_writer.h"
@@ -37,7 +38,7 @@
 #define PAYLOAD_PRO_PRIORITY 	MEDIUM_PRIORITY		// process payload data
 #define COMM_RX_PRIORITY 		MEDIUM_PRIORITY 	// receive and process commands
 #define COMM_HANDLE_PRIORITY	MEDIUM_PRIORITY		// command timing setup
-#define DATA_TX_PRIORITY 		HIGH_PRIORITY  		// frame and send data to ground
+#define COMM_PRIORITY 			HIGH_PRIORITY  		// frame and send data to ground
 #define FILE_W_PRIORITY 		MEDIUM_PRIORITY		// write data to file
 #define SD_PRIORITY				MEDIUM_PRIORITY		// send and retrieve SD card data
 
@@ -87,7 +88,7 @@ struct obc {
 
 static struct obc obc;
 
-xQueueHandle adc_queue, gps_queue, file_w_queue;
+xQueueHandle adc_queue, gps_queue, file_w_queue, comm_tx_queue;
 
 /*
  * Task for switching which mode the satellite is in.
@@ -118,6 +119,7 @@ void mode_switching(void _UNUSED *arg) {
 
 /*
  * Function to sort the obc commands in order of execution time
+ * TODO: Remove duplicate ID numbers
  */
 void sort_command_list()
 {
@@ -178,7 +180,7 @@ int execute_obc_command(uint16_t cmd, long option)
 
 	switch (task_id) {
 		// Command handling command
-		case BIT(COMMAND):
+		case BIT(CONTROL):
 			if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE) {
 				error("Error sending adc queue message\n");
 				return -1;
@@ -193,6 +195,12 @@ int execute_obc_command(uint16_t cmd, long option)
 
 			if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE) {
 				error("Error sending adc queue message\n");
+				return -1;
+			}
+			break;
+		case BIT(COMM_TX):
+			if (xQueueSend(comm_tx_queue, (void *) &message, 0) == pdFALSE) {
+				error("Error sending comm tx queue message\n");
 				return -1;
 			}
 			break;
@@ -214,6 +222,7 @@ void task_command_handler(void _UNUSED *arg)
 	// Main loop
 	for (;;) {
 		// Check if there is a message from GPS updating the time.
+		// TODO: ensure mutual exclusion
 		if (xQueueReceive(gps_queue, &message, 0) == pdTRUE) {
 			obc.gps_time = message.time;
 			obc.gps_tick = message.tick;
@@ -308,11 +317,11 @@ void obc_init(void)
 	obc.command_list[0].data = 10;
 	obc.command_list[0].execution_time = 100;
 
-	obc.command_list[1].id = (BIT(ATTITUDE) << OBC_ID_TASK_BIT) | 2;
-	obc.command_list[1].data = 80;
+	obc.command_list[1].id = (BIT(COMM_TX) << OBC_ID_TASK_BIT) | 0;
+	obc.command_list[1].data = 0x20000000;
 	obc.command_list[1].execution_time = 500;
 
-	obc.command_list[2].id = (BIT(ATTITUDE) | BIT(COMMAND)) << OBC_ID_TASK_BIT;
+	obc.command_list[2].id = (BIT(ATTITUDE) | BIT(CONTROL)) << OBC_ID_TASK_BIT;
 	obc.command_list[2].data = 100;
 	obc.command_list[2].execution_time = 3400;
 
@@ -329,22 +338,22 @@ void obc_main(void)
 {
 	obc_init();
 //	xTaskHandle task_mode;
+
+	/* Create queues */
 	adc_queue = xQueueCreate(5, sizeof(struct queue_message));
 	gps_queue = xQueueCreate(1, sizeof(struct gps_queue_message));
 	file_w_queue = xQueueCreate(10, sizeof(struct file_queue_message));
+	comm_tx_queue = xQueueCreate(10, sizeof(struct queue_message));
 
-	if (gps_queue == 0)
-	{
-		error("Could not create gps queue\n");
-	}
 
 	/* Create tasks */
 	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, (void *) &file_w_queue, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
 	xTaskCreate(task_attitude, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queue, ATTITUDE_PRIORITY, &task[ATTITUDE]);
 	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, (void *) &gps_queue, GPS_PRIORITY, &task[GPS]);
 	//xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
-	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[COMMAND]);
+	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[CONTROL]);
 	xTaskCreate(task_file_writer, (const char*)"File Writer", configMINIMAL_STACK_SIZE, (void *) &file_w_queue, FILE_W_PRIORITY, &task[FILE_W]);
+	xTaskCreate(task_comm, (const char*)"Communication Downlink", configMINIMAL_STACK_SIZE, (void *) &comm_tx_queue, COMM_PRIORITY, &task[COMM_TX]);
 
 #ifdef _DEBUG
 	//xTaskCreate(task_debug, (const char*)"Debug", configMINIMAL_STACK_SIZE, &task_mode, configMAX_PRIORITIES-2, NULL);

@@ -12,6 +12,8 @@ struct gps_queue_message {
 	// The tick at time of timestamp
 	int tick;
 	// TODO: Add in position data
+	float pos[3];
+	float vel[3];
 };
 
 struct gps_data {
