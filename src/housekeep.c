@@ -16,12 +16,22 @@
 #include "obc.h"
 #include "gps.h"
 #include "file_writer.h"
+#include "error_check.h"
 
 #define HOUSEKEEP_PACKET_SIZE 200
 
 void task_housekeep(void *arg)
 {
-	xQueueHandle queue = *(xQueueHandle *)arg;
+	struct multi_queue mq = *(struct multi_queue *)arg;
+	if (mq.num != 2) {
+		error("Housekeep input arg incorrect\n");
+		return;
+	}
+	xQueueHandle file_queue = *mq.q[0];
+	xQueueHandle error_queue = *mq.q[1];
+
+	struct error_message em;
+	em.id = HOUSEKEEP;
 
 	const int delay = (300000 / portTICK_RATE_MS); // every 5 minutes
 	char packet[HOUSEKEEP_PACKET_SIZE];
@@ -48,14 +58,17 @@ void task_housekeep(void *arg)
 		message.data = packet;
 		message.size = HOUSEKEEP_PACKET_SIZE;
 		snprintf(message.file_name, ARRAY_SIZE(message.file_name), "%03d", day_of_year);
-		if (xQueueSend(queue, (void *) &message, 0) == pdFALSE)
+		if (xQueueSend(file_queue, (void *) &message, 0) == pdFALSE)
 					error("Error sending housekeep queue message\n");
 //		fflush(stdout);
 
 		vTaskDelay(2000);
 	}
 
+	// Should never reach this point;
 	for (;;) {
-		vTaskDelay(10);
+		error_send_message(&error_queue, &em);
+		error_set_fram(ERROR_TASK_FAIL);
+		vTaskDelay(1000);
 	}
 }

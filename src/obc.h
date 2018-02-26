@@ -5,10 +5,16 @@
  *      Author: admin
  */
 
+#ifndef OBC_H
+#define OBC_H
+
+#include "FreeRTOS.h"
+#include "queue.h"
 
 // choose whether system goes into debug mode or not
 #define _DEBUG
 
+// macro to remove warnings about unused variable
 #define _UNUSED __attribute__((__unused__))
 
 /*
@@ -20,17 +26,18 @@
  */
 #define BIT(x) (1 << (x))
 
+// get the size of an array. Will cause an error if used on a non-array element. Doesn't work on dynamic array
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
 // Defines which bit in the obc_command.id begins referencing the task id
 #define OBC_ID_TASK_BIT 4
 
+// macros for debug printing and error printing
 #ifdef _DEBUG
 #define debug(...) printf(__VA_ARGS__)
 #else
 #define debug(...)
 #endif
-
 #define error(...) printf(__VA_ARGS__)
 
 // All potential obc commands
@@ -61,6 +68,8 @@ enum task {
 	HOUSEKEEP,
 	// write data to file
 	FILE_W,
+	// check errors
+	ERROR_CHK,
 	NUM_TASKS,
 };
 
@@ -87,6 +96,14 @@ struct queue_message {
 	long data;
 };
 
+// a struct that holds two queues. Used for passing in multiple queues to a task
+struct multi_queue {
+	// handles for all queues
+	xQueueHandle *q[3];
+	// number of handles
+	int num;
+};
+
 /*
  * Function: obc_main
  *
@@ -95,3 +112,4 @@ struct queue_message {
 void obc_main(void);
 
 
+#endif

@@ -22,6 +22,7 @@
 #include "gps.h"
 #include "fram.h"
 #include "file_writer.h"
+#include "error_check.h"
 
 #include <stdio.h>
 
@@ -32,7 +33,7 @@
 /* List of Priorities for all tasks on the system */
 #define HOUSEKEEP_PRIORITY 		MEDIUM_PRIORITY
 #define MODESWITCH_PRIORITY 	LOW_PRIORITY
-#define ERROR_PRIORITY			MEDIUM_PRIORITY		// check and handle errors
+#define ERROR_PRIORITY			HIGH_PRIORITY		// check and handle errors
 #define ATTITUDE_PRIORITY 		LOW_PRIORITY
 #define GPS_PRIORITY 			MEDIUM_PRIORITY
 #define PAYLOAD_PRO_PRIORITY 	MEDIUM_PRIORITY		// process payload data
@@ -88,7 +89,7 @@ struct obc {
 
 static struct obc obc;
 
-xQueueHandle adc_queue, gps_queue, file_w_queue, comm_tx_queue;
+xQueueHandle adc_queue, gps_queue, file_w_queue, comm_tx_queue, error_queue;
 
 /*
  * Task for switching which mode the satellite is in.
@@ -153,7 +154,7 @@ void sort_command_list()
 int execute_obc_command(uint16_t cmd, long option)
 {
 	uint16_t task_id = cmd >> OBC_ID_TASK_BIT;
-	debug("cmd = %x, cmd-1 = %x\n", cmd, task_id);
+//	debug("cmd = %x, cmd-1 = %x\n", cmd, task_id);
 	// Check if there is more than one task bit sent
 	if ((task_id & (task_id - 1)) != 0) {
 		error("Error: More than one task bit set\n");
@@ -206,21 +207,11 @@ int execute_obc_command(uint16_t cmd, long option)
 void task_command_handler(void _UNUSED *arg)
 {
 	struct obc_command cmd;
-	struct gps_queue_message message;
+	struct error_message em;
+	em.id = CONTROL;
 
 	// Main loop
 	for (;;) {
-		// Check if there is a message from GPS updating the time.
-		// TODO: ensure mutual exclusion
-		if (xQueueReceive(gps_queue, &message, 0) == pdTRUE) {
-			obc.gps_time = message.time;
-			obc.gps_tick = message.tick;
-			printf("Setting gps_tick to %i\n", message.tick);
-			printf("GPS tick = %i", obc.gps_tick);
-		}
-		//debug("Time running = %li\n", obc_get_timestamp());
-		fflush(stdout);
-
 		// read the command stack pointer and grab the next command
 		if (obc.command_num == 0) {
 			debug("no tasks to run\n");
@@ -239,6 +230,7 @@ void task_command_handler(void _UNUSED *arg)
 
 		if (execute_obc_command(cmd.id, cmd.data) != 0){
 			error("error executing command\n");
+			error_send_message(&error_queue, &em);
 		}
 
 		// remove the command just executed
@@ -249,6 +241,13 @@ void task_command_handler(void _UNUSED *arg)
 		sort_command_list();
 
 		//vTaskDelay(100);
+	}
+
+	// Should never reach this point;
+	for (;;) {
+		error_send_message(&error_queue, &em);
+		error_set_fram(ERROR_TASK_FAIL);
+		vTaskDelay(1000);
 	}
 }
 
@@ -334,19 +333,44 @@ void obc_main(void)
 
 	/* Create queues */
 	adc_queue = xQueueCreate(5, sizeof(struct queue_message));
-	gps_queue = xQueueCreate(1, sizeof(struct gps_queue_message));
+//	gps_queue = xQueueCreate(1, sizeof(struct gps_queue_message));
 	file_w_queue = xQueueCreate(10, sizeof(struct file_queue_message));
 	comm_tx_queue = xQueueCreate(10, sizeof(struct queue_message));
+	error_queue = xQueueCreate(10, sizeof(struct error_message));
 
+	/* Declare the input queues to each task
+	 * TODO: use one multiqueue and change the queues after creating the task?
+	 */
+	struct multi_queue housekeep_queues;
+	housekeep_queues.q[0] = &file_w_queue;
+	housekeep_queues.q[1] = &error_queue;
+	housekeep_queues.num = 2;
+
+	struct multi_queue adc_queues;
+	adc_queues.q[0] = &adc_queue;
+	adc_queues.q[1] = &error_queue;
+	adc_queues.num = 2;
+
+	struct multi_queue file_w_queues;
+	file_w_queues.q[0] = &file_w_queue;
+	file_w_queues.q[1] = &error_queue;
+	file_w_queues.num = 2;
+
+	struct multi_queue comm_tx_queues;
+	comm_tx_queues.q[0] = &comm_tx_queue;
+	comm_tx_queues.q[1] = &error_queue;
+	comm_tx_queues.num = 2;
 
 	/* Create tasks */
-	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, (void *) &file_w_queue, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
-	xTaskCreate(task_adc, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queue, ATTITUDE_PRIORITY, &task[ADC]);
-	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, (void *) &gps_queue, GPS_PRIORITY, &task[GPS]);
+	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, (void *) &housekeep_queues, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
+	xTaskCreate(task_adc, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queues, ATTITUDE_PRIORITY, &task[ADC]);
+	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, (void *) &error_queue, GPS_PRIORITY, &task[GPS]);
 	//xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
 	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[CONTROL]);
-	xTaskCreate(task_file_writer, (const char*)"File Writer", configMINIMAL_STACK_SIZE, (void *) &file_w_queue, FILE_W_PRIORITY, &task[FILE_W]);
-	xTaskCreate(task_comm, (const char*)"Communication Downlink", configMINIMAL_STACK_SIZE, (void *) &comm_tx_queue, COMM_PRIORITY, &task[COMM_TX]);
+	xTaskCreate(task_file_writer, (const char*)"File Writer", configMINIMAL_STACK_SIZE, (void *) &file_w_queues, FILE_W_PRIORITY, &task[FILE_W]);
+	xTaskCreate(task_comm, (const char*)"Communication Downlink", configMINIMAL_STACK_SIZE, (void *) &comm_tx_queues, COMM_PRIORITY, &task[COMM_TX]);
+	xTaskCreate(task_error_check, (const char*)"Error Checking", configMINIMAL_STACK_SIZE, (void *) &error_queue, ERROR_PRIORITY, &task[ERROR_CHK]);
+
 
 #ifdef _DEBUG
 	//xTaskCreate(task_debug, (const char*)"Debug", configMINIMAL_STACK_SIZE, &task_mode, configMAX_PRIORITIES-2, NULL);

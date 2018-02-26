@@ -14,12 +14,15 @@
 
 #include "gps.h"
 #include "obc.h"
+#include "error_check.h"
 
 #include <stdio.h>
 #include <sys\timeb.h>
 
 static struct gps_data gps_data;
 SemaphoreHandle_t gps_mutex;
+// queue for sending errors
+xQueueHandle error_queue;
 
 void gps_init()
 {
@@ -28,8 +31,11 @@ void gps_init()
 	}
 }
 
-void task_gps(void _UNUSED *arg)
+void task_gps(void *arg)
 {
+	error_queue = *(xQueueHandle *)arg;
+	struct error_message em;
+	em.id = GPS;
 
 	struct timeb t;
 	for (;;) {
@@ -44,11 +50,21 @@ void task_gps(void _UNUSED *arg)
 			xSemaphoreGive(gps_mutex);
 		}
 
+		// debugging testing the error queue
+		em.data = 0x10;
+		error_send_message(&error_queue, &em);
+
 		vTaskDelay(5000);
 	}
 
+
+	em.data = 0x20;
 	// Should never reach this point;
-	for (;;) ;
+	for (;;) {
+		error_send_message(&error_queue, &em);
+		error_set_fram(ERROR_TASK_FAIL);
+		vTaskDelay(1000);
+	}
 }
 
 

@@ -13,6 +13,7 @@
 
 #include "file_writer.h"
 #include "obc.h"
+#include "error_check.h"
 
 /*
  * file_writer task.
@@ -21,7 +22,17 @@
  */
 void task_file_writer(void *arg)
 {
-	xQueueHandle queue = *(xQueueHandle *)arg;
+	struct multi_queue mq = *(struct multi_queue *)arg;
+	if (mq.num != 2) {
+		error("File_w input arg incorrect\n");
+		return;
+	}
+	xQueueHandle file_queue = *mq.q[0];
+	xQueueHandle error_queue = *mq.q[1];
+
+	struct error_message em;
+	em.id = ERROR_CHK;
+
 	char name[30];
 	struct file_queue_message message;
 
@@ -29,7 +40,7 @@ void task_file_writer(void *arg)
 	for (;;) {
 		// Do a blocking read to wait for data to write
 		// TODO: make blocking indefinite with portMAX_DELAY
-		if (xQueueReceive(queue, &message, 500) == pdTRUE) {
+		if (xQueueReceive(file_queue, &message, 500) == pdTRUE) {
 			FILE *fp;
 			switch(message.id) {
 				case FOLDER_PAYLOAD:
@@ -51,5 +62,12 @@ void task_file_writer(void *arg)
 			fprintf(fp, "%s", message.data);
 			fclose(fp);
 		}
+	}
+
+	// Should never reach this point;
+	for (;;) {
+		error_send_message(&error_queue, &em);
+		error_set_fram(ERROR_TASK_FAIL);
+		vTaskDelay(1000);
 	}
 }

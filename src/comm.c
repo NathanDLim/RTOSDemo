@@ -26,16 +26,27 @@
 
 #include "obc.h"
 #include "comm.h"
+#include "error_check.h"
 
 void task_comm(void *arg)
 {
-	xQueueHandle queue = *(xQueueHandle *)arg;
+	struct multi_queue mq = *(struct multi_queue *)arg;
+	if (mq.num != 2) {
+		error("COMM_TX input arg incorrect\n");
+		return;
+	}
+	xQueueHandle comm_queue = *mq.q[0];
+	xQueueHandle error_queue = *mq.q[1];
+
+	struct error_message em;
+	em.id = COMM_TX;
+
 	struct queue_message message;
 	char name[32];
 	char buf[200];
 
 	for (;;) {
-		if (xQueueReceive(queue, &message, 500) == pdTRUE) {
+		if (xQueueReceive(comm_queue, &message, 500) == pdTRUE) {
 			uint8_t day = message.data >> 24;
 
 			switch (message.id) {
@@ -68,6 +79,13 @@ void task_comm(void *arg)
 
 		}
 
+		vTaskDelay(1000);
+	}
+
+	// Should never reach this point;
+	for (;;) {
+		error_send_message(&error_queue, &em);
+		error_set_fram(ERROR_TASK_FAIL);
 		vTaskDelay(1000);
 	}
 }
