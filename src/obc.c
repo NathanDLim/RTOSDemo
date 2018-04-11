@@ -3,13 +3,11 @@
  *
  *  Created on: Oct 6, 2017
  *      Author: Nathan Lim
+ *
+ * TODO: Split this file up to move task creation into the main.cc
  */
 
 //#include <hal/Utility/util.h>
-//
-//#include <FreeRTOS/FreeRTOS.h>
-//#include <FreeRTOS/task.h>
-//#include <FreeRTOS/queue.h>
 
 #include <FreeRTOS.h>
 #include <task.h>
@@ -25,6 +23,7 @@
 #include "error_check.h"
 
 #include <stdio.h>
+#include <sys\timeb.h>
 
 #define HIGH_PRIORITY		configMAX_PRIORITIES-1
 #define MEDIUM_PRIORITY		configMAX_PRIORITIES-2
@@ -66,10 +65,10 @@ xTaskHandle task[9];
  * The numbering of the tasks are shown in enum task, where each entry represents the bit number.
  */
 const unsigned int mode_mask[] = {
-									0b100000000,	// Initial Mode
-									0b0010011,	// Sun-pointing
-									0b1110100,	// Nadir-pointing
-									0b0001000		// Safety
+									0b100000000,
+									0b0010011,
+									0b1110100,
+									0b0001000
 								 };
 
 struct obc {
@@ -87,8 +86,10 @@ struct obc {
 	// TODO: add GPS position data at last update
 };
 
+// Our OBC structure
 static struct obc obc;
 
+// Queues
 xQueueHandle adc_queue, gps_queue, file_w_queue, comm_tx_queue, error_queue;
 
 /*
@@ -153,7 +154,7 @@ void sort_command_list()
  */
 int execute_obc_command(uint16_t cmd, long option)
 {
-	uint16_t task_id = cmd >> OBC_ID_TASK_BIT;
+	uint16_t task_id = cmd >> OBC_CODE_TASK_BIT;
 //	debug("cmd = %x, cmd-1 = %x\n", cmd, task_id);
 	// Check if there is more than one task bit sent
 	if ((task_id & (task_id - 1)) != 0) {
@@ -163,17 +164,13 @@ int execute_obc_command(uint16_t cmd, long option)
 
 	struct queue_message message;
 	// The message ID being sent to the task is the bottom part of the command ID
-	message.id = cmd & (OBC_ID_TASK_BIT - 1);
+	message.id = cmd & (OBC_CODE_TASK_BIT - 1);
 	message.data = option;
 
 	switch (task_id) {
 		// Command handling command
 		case BIT(CONTROL):
-			if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE) {
-				error("Error sending adc queue message\n");
-				return -1;
-			}
-			// send message to adc to new target
+			debug("Doing Control work\n");
 			break;
 		// ADC command
 		case BIT(ADC):
@@ -207,11 +204,16 @@ int execute_obc_command(uint16_t cmd, long option)
 void task_command_handler(void _UNUSED *arg)
 {
 	struct obc_command cmd;
-	struct error_message em;
+	struct queue_message em;
 	em.id = CONTROL;
+	char buffer[2048];
 
 	// Main loop
 	for (;;) {
+//		vTaskGetRuntimeStats();
+		vTaskList(buffer);
+		printf(buffer);
+//		printf("time: %li\n", gps_get_timestamp());
 		// read the command stack pointer and grab the next command
 		if (obc.command_num == 0) {
 			debug("no tasks to run\n");
@@ -219,20 +221,24 @@ void task_command_handler(void _UNUSED *arg)
 			vTaskDelay(5000);
 			continue;
 		}
+
 		cmd = obc.command_list[0];
 
 		// if the command should be run now or delayed
 		long timestamp = gps_get_timestamp();
 		if (cmd.execution_time > timestamp) {
-			vTaskDelay((cmd.execution_time - timestamp) / portTICK_PERIOD_MS);
+//			debug("delay for %i s\n", (cmd.execution_time - timestamp) / portTICK_PERIOD_MS * 1000);
+			vTaskDelay((cmd.execution_time - timestamp) / portTICK_PERIOD_MS * 1000);
 			continue;
 		}
 
+		// run the actual command
 		if (execute_obc_command(cmd.id, cmd.data) != 0){
 			error("error executing command\n");
 			error_send_message(&error_queue, &em);
 		}
 
+		// TODO: await a confirmation that the task was complete before removing it?
 		// remove the command just executed
 		obc.command_list[0] = obc.command_list[obc.command_num - 1];
 		obc.command_num--;
@@ -245,52 +251,14 @@ void task_command_handler(void _UNUSED *arg)
 
 	// Should never reach this point;
 	for (;;) {
-		error_send_message(&error_queue, &em);
 		error_set_fram(ERROR_TASK_FAIL);
+		error_send_message(&error_queue, &em);
 		vTaskDelay(1000);
 	}
 }
 
 #ifdef _DEBUG
-void task_debug(void _UNUSED *arg)
-{
-	//xTaskHandle *hmode_switch = (xTaskHandle *)arg;
-	unsigned int num = 0;
-	struct queue_message message;
 
-	for (;;) {
-		/*
-		printf("Debug Mode\n");
-		printf("Enter a number to select the mode of operation\n");
-		printf("1. Initial Mode\n");
-		printf("2. Sun Pointing Mode\n");
-		printf("3. Nadir Pointing Mode\n");
-		printf("4. Safety Mode\n>> ");
-		fflush(stdout);
-		*/
-		//while(UTIL_DbguGetIntegerMinMax(&num, 1, 4) == 0);
-
-		//scanf("%d", &num);
-
-		num = num > 4 ? 1 : num + 1;
-		if (num < 1 || num > 4)
-			continue;
-		//obc.mode = num - 1;
-
-		// test message
-		message.id = 101;
-		message.data = num;
-
-		if (xQueueSend(adc_queue, (void *) &message, 0) == pdFALSE)
-			error("Error sending adc queue message\n");
-
-		debug("sending num = %i\n", num);
-		fflush(stdout);
-
-		//vTaskResume(*hmode_switch);
-		vTaskDelay(2000);
-	}
-}
 #endif
 
 /*
@@ -302,25 +270,32 @@ void obc_init(void)
 	obc.mode = 1;
 
 	/* This part is all for debugging */
-	long start = gps_get_timestamp();
+	struct timeb t;
+	ftime(&t);
+
+	long start = t.time;
 
 	/* List of test obc_commands */
-	obc.command_list[0].id = (BIT(ADC) << OBC_ID_TASK_BIT) | 0;
+	obc.command_list[0].id = (BIT(ADC) << OBC_CODE_TASK_BIT) | 0;
 	obc.command_list[0].data = 10;
-	obc.command_list[0].execution_time = start + 2000;
+	obc.command_list[0].execution_time = start + 2;
 
-	obc.command_list[1].id = (BIT(COMM_TX) << OBC_ID_TASK_BIT) | 0;
+	obc.command_list[1].id = (BIT(COMM_TX) << OBC_CODE_TASK_BIT) | 0;
 	obc.command_list[1].data = 43 << 24;
-	obc.command_list[1].execution_time = start + 4000;
+	obc.command_list[1].execution_time = start + 5;
 
-	obc.command_list[2].id = (BIT(ADC) | BIT(CONTROL)) << OBC_ID_TASK_BIT;
+	obc.command_list[2].id = (BIT(ADC) | BIT(CONTROL)) << OBC_CODE_TASK_BIT;
 	obc.command_list[2].data = 100;
-	obc.command_list[2].execution_time = start + 3000;
+	obc.command_list[2].execution_time = start + 12;
 
-	obc.command_list[3].id = (BIT(ADC) << OBC_ID_TASK_BIT) | 1;
+	obc.command_list[3].id = (BIT(ADC) << OBC_CODE_TASK_BIT) | 1;
 	obc.command_list[3].data = 10;
-	obc.command_list[3].execution_time = start + 6000;
+	obc.command_list[3].execution_time = start + 4;
 	obc.command_num = 4;
+
+//	int i;
+//	for (i = 0; i < 4; i++)
+//		debug("%i:%li\n", i, obc.command_list[i].execution_time);
 }
 
 /*
@@ -336,7 +311,7 @@ void obc_main(void)
 //	gps_queue = xQueueCreate(1, sizeof(struct gps_queue_message));
 	file_w_queue = xQueueCreate(10, sizeof(struct file_queue_message));
 	comm_tx_queue = xQueueCreate(10, sizeof(struct queue_message));
-	error_queue = xQueueCreate(10, sizeof(struct error_message));
+	error_queue = xQueueCreate(10, sizeof(struct queue_message));
 
 	/* Declare the input queues to each task
 	 * TODO: use one multiqueue and change the queues after creating the task?
@@ -362,14 +337,14 @@ void obc_main(void)
 	comm_tx_queues.num = 2;
 
 	/* Create tasks */
-	xTaskCreate(task_housekeep, (const char*)"housekeep", configMINIMAL_STACK_SIZE, (void *) &housekeep_queues, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
-	xTaskCreate(task_adc, (const char*)"ADC", configMINIMAL_STACK_SIZE, (void *) &adc_queues, ATTITUDE_PRIORITY, &task[ADC]);
-	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE, (void *) &error_queue, GPS_PRIORITY, &task[GPS]);
+	xTaskCreate(task_housekeep, (const char*)"Housekp", configMINIMAL_STACK_SIZE, (void *) &housekeep_queues, HOUSEKEEP_PRIORITY, &task[HOUSEKEEP]);
+	xTaskCreate(task_adc, (const char*)"ADC", configMINIMAL_STACK_SIZE*3, (void *) &adc_queues, ATTITUDE_PRIORITY, &task[ADC]);
+	xTaskCreate(task_gps, (const  char*)"GPS", configMINIMAL_STACK_SIZE * 2, (void *) &error_queue, GPS_PRIORITY, &task[GPS]);
 	//xTaskCreate(mode_switching, (const char*)"Mode Switching", configMINIMAL_STACK_SIZE, NULL, LOW_PRIORITY, &task_mode);
-	xTaskCreate(task_command_handler, (const char*)"Command Handler", configMINIMAL_STACK_SIZE, NULL, MEDIUM_PRIORITY, &task[CONTROL]);
+	xTaskCreate(task_command_handler, (const char*)"Control", configMINIMAL_STACK_SIZE*10, NULL, MEDIUM_PRIORITY, &task[CONTROL]);
 	xTaskCreate(task_file_writer, (const char*)"File Writer", configMINIMAL_STACK_SIZE, (void *) &file_w_queues, FILE_W_PRIORITY, &task[FILE_W]);
-	xTaskCreate(task_comm, (const char*)"Communication Downlink", configMINIMAL_STACK_SIZE, (void *) &comm_tx_queues, COMM_PRIORITY, &task[COMM_TX]);
-	xTaskCreate(task_error_check, (const char*)"Error Checking", configMINIMAL_STACK_SIZE, (void *) &error_queue, ERROR_PRIORITY, &task[ERROR_CHK]);
+	xTaskCreate(task_comm, (const char*)"Comm Down", configMINIMAL_STACK_SIZE, (void *) &comm_tx_queues, COMM_PRIORITY, &task[COMM_TX]);
+	xTaskCreate(task_error_check, (const char*)"Error", configMINIMAL_STACK_SIZE, (void *) &error_queue, ERROR_PRIORITY, &task[ERROR_CHK]);
 
 
 #ifdef _DEBUG

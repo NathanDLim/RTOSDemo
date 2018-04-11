@@ -38,7 +38,8 @@ void task_comm(void *arg)
 	xQueueHandle comm_queue = *mq.q[0];
 	xQueueHandle error_queue = *mq.q[1];
 
-	struct error_message em;
+	// Error Queue message
+	struct queue_message em;
 	em.id = COMM_TX;
 
 	struct queue_message message;
@@ -84,8 +85,8 @@ void task_comm(void *arg)
 
 	// Should never reach this point;
 	for (;;) {
-		error_send_message(&error_queue, &em);
 		error_set_fram(ERROR_TASK_FAIL);
+		error_send_message(&error_queue, &em);
 		vTaskDelay(1000);
 	}
 }

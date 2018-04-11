@@ -30,7 +30,8 @@ void task_housekeep(void *arg)
 	xQueueHandle file_queue = *mq.q[0];
 	xQueueHandle error_queue = *mq.q[1];
 
-	struct error_message em;
+	// Error Queue message
+	struct queue_message em;
 	em.id = HOUSEKEEP;
 
 	const int delay = (300000 / portTICK_RATE_MS); // every 5 minutes
@@ -62,13 +63,13 @@ void task_housekeep(void *arg)
 					error("Error sending housekeep queue message\n");
 //		fflush(stdout);
 
-		vTaskDelay(2000);
+		vTaskDelay(20000);
 	}
 
 	// Should never reach this point;
 	for (;;) {
-		error_send_message(&error_queue, &em);
 		error_set_fram(ERROR_TASK_FAIL);
+		error_send_message(&error_queue, &em);
 		vTaskDelay(1000);
 	}
 }

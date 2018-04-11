@@ -29,8 +29,8 @@
 // get the size of an array. Will cause an error if used on a non-array element. Doesn't work on dynamic array
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
-// Defines which bit in the obc_command.id begins referencing the task id
-#define OBC_ID_TASK_BIT 4
+// Defines which bit in the obc_command.code begins referencing the task id
+#define OBC_CODE_TASK_BIT 4
 
 // macros for debug printing and error printing
 #ifdef _DEBUG
@@ -76,14 +76,15 @@ enum task {
 /*
  * The struct which holds a command from ground station.
  *
- * 'id' is an unsigned integer with two parts. The top part is to identify which task the command relates to, and
+ * 'code' is an unsigned integer with two parts. The top part is to identify which task the command relates to, and
  * the bottom part identifies a specific action related to that task. The top part should only have one bit set,
  * and the set bit indicates which task it goes to. The bit number is based off the 'task' enum.
  *
- * The 'OBC_ID_TASK_BIT' macro indicates where the split in the id occurs.
+ * The 'OBC_CODE_TASK_BIT' macro indicates where the split in the id occurs.
  */
 struct obc_command {
 	uint16_t id;
+	uint16_t code;
 	long execution_time;
 	long data;
 };

@@ -20,7 +20,7 @@ void error_nonrecover()
 void task_error_check(void *arg)
 {
 	xQueueHandle queue = *(xQueueHandle *)arg;
-	struct error_message message;
+	struct queue_message message;
 
 	for (;;) {
 		if (xQueueReceive(queue, &message, 500) == pdTRUE) {
@@ -70,7 +70,7 @@ void error_set_fram(int bit)
 	error("CRITICAL ERROR: setting bit %i\n", bit);
 }
 
-void error_send_message(xQueueHandle *err_q, struct error_message *err)
+void error_send_message(xQueueHandle *err_q, struct queue_message *err)
 {
 	if (xQueueSend(*err_q, (void *) err, 0) == pdFALSE) {
 		error("Error sending error queue message\n");

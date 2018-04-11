@@ -34,7 +34,8 @@ void gps_init()
 void task_gps(void *arg)
 {
 	error_queue = *(xQueueHandle *)arg;
-	struct error_message em;
+	// Error Queue message
+	struct queue_message em;
 	em.id = GPS;
 
 	struct timeb t;
@@ -54,15 +55,15 @@ void task_gps(void *arg)
 		em.data = 0x10;
 		error_send_message(&error_queue, &em);
 
-		vTaskDelay(5000);
+		vTaskDelay(50000);
 	}
 
 
 	em.data = 0x20;
 	// Should never reach this point;
 	for (;;) {
-		error_send_message(&error_queue, &em);
 		error_set_fram(ERROR_TASK_FAIL);
+		error_send_message(&error_queue, &em);
 		vTaskDelay(1000);
 	}
 }
@@ -91,6 +92,7 @@ int gps_get_data(struct gps_data *data)
  * Function: gps_get_timestamp
  *
  * This function returns the current timestamp based on the last data received by the GPS task.
+ * In seconds.
  * TODO: Fix wrap around. What happens when the time overflows?
  *
  * in/out: pointer to gps_data struct where the current gps_data will be placed

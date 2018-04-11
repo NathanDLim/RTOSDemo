@@ -21,11 +21,6 @@ enum error_bit {
 	ERROR_UKNOWN,
 };
 
-struct error_message {
-	int id;
-	uint16_t data;
-};
-
 void task_error_check(void *arg);
 
 /*
@@ -43,6 +38,6 @@ void error_set_fram(int bit);
  * 		but if it is not successful, it sets a bit on the FRAM.
  * in: pointer to the error queue, and pointer to the error message to be sent.
  */
-void error_send_message(xQueueHandle*, struct error_message *);
+void error_send_message(xQueueHandle*, struct queue_message *);
 
 #endif /* ERROR_CHECK_H_ */
